@@ -1,0 +1,42 @@
+[
+  {
+    "slug": "yazilim",
+    "name": "Yazılım",
+    "description": "Kod, web ve yazılım geliştirme dünyası",
+    "color": "#3B82F6",
+    "icon": "code",
+    "sort_order": 1
+  },
+  {
+    "slug": "yapay-zeka",
+    "name": "Yapay Zeka",
+    "description": "Makine öğrenmesi, modeller ve yapay zeka tarihi",
+    "color": "#8B5CF6",
+    "icon": "brain",
+    "sort_order": 2
+  },
+  {
+    "slug": "bilgisayar-muhendisligi",
+    "name": "Bilgisayar Mühendisliği",
+    "description": "Donanım, işletim sistemleri ve ağlar",
+    "color": "#14B8A6",
+    "icon": "cpu",
+    "sort_order": 3
+  },
+  {
+    "slug": "ulkeler",
+    "name": "Ülkeler",
+    "description": "Başkentler, bayraklar ve coğrafya",
+    "color": "#FF8A3D",
+    "icon": "globe",
+    "sort_order": 4
+  },
+  {
+    "slug": "fizik",
+    "name": "Fizik",
+    "description": "Hareket, enerji ve evrenin kuralları",
+    "color": "#EC4899",
+    "icon": "atom",
+    "sort_order": 5
+  }
+]

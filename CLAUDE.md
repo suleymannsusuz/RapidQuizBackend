@@ -1,0 +1,112 @@
+# Rapid Quiz — Backend (Django + DRF)
+
+5 kategoride 20'şer soru soran, soru başına 5 saniye süre tanıyan, üyeliksiz bilgi yarışması. Ayrıntılı tasarım: `docs/rapid-quiz-proje-dokumani.md` (kaynak doküman; çelişki olursa o geçerlidir). Frontend ayrı repoda: `C:\Users\Süleyman\PycharmProjects\RapidQuizFrontend` (Vue 3).
+
+## Değişmez kurallar
+
+- **Puan, süre ve doğru cevap kontrolü her zaman sunucuda yapılır.** İstemciden gelen hiçbir süre/puan bilgisine güvenilmez.
+- Soru yanıtında doğru şık bilgisi (`is_correct`) **asla** bulunmaz; `correct_choice_id` yalnızca cevap gönderildikten sonra döner.
+- Oyun kuralları `apps/quiz/services.py` içindedir; view'lar yalnızca isteği doğrular ve servisi çağırır.
+- API çerezsizdir: oturum `X-Session-Token` başlığıyla taşınır. Token'ın yalnızca SHA-256 özeti saklanır; ham IP saklanmaz (`ip_hash`).
+- Tüm hatalar tek biçimdedir: `{"error": {"code", "message", "details"}}` (`apps/core/exceptions.py`). Yeni hata için `APIError(code, message, status_code)` kullan.
+- Kırıcı API değişikliği `/api/v2/` altında yapılır; `/api/v1/` bozulmaz.
+- Sırlar ortam değişkeninde; `.env` repoya girmez, `.env.example` güncel tutulur.
+- Kod yorumları ve kullanıcıya dönen mesajlar Türkçe.
+
+## Oyun kuralları
+
+| Kural | Değer |
+| --- | --- |
+| Soru sayısı | 20 (kategori havuzundan rastgele, tekrarsız) |
+| Şık | 4, sırası her oturumda karıştırılır (`choice_order`) |
+| Süre | 5000 ms, sunucu saatiyle (`served_at`) |
+| Ağ toleransı | +700 ms; bu sürede gelen cevap kabul edilir, bonus 0 |
+| 5700 ms sonrası | Süre aşımı, 0 puan |
+| Doğru cevap | `100 + round(50 × max(0, 5000 − t) / 5000)` |
+| Yanlış / süre aşımı | 0 puan, eksi puan yok |
+| Geri dönme / atlama | Yok |
+| Zorluk çarpanı | Yok (`difficulty` yalnızca saklanır) |
+| Yanlış cevaptan sonra | Doğru şık gösterilir |
+| Eşitlik bozma | 1) yüksek puan 2) düşük toplam süre 3) erken bitiren |
+| Skor tablosu | Kategori bazlı, tüm zamanların ilk 10'u |
+| Oturum ömrü | 10 dk; aşan `active` oturum her istekte `expired` sayılır |
+| Soru/şık uzunluğu | en fazla 90 / 40 karakter (DB ve admin'de doğrulanır) |
+
+## API (`/api/v1/`)
+
+| Metot | Uç nokta | Durum |
+| --- | --- | --- |
+| GET | `/categories/` | ✅ Aşama 1 |
+| GET | `/health/` | ✅ Aşama 1 |
+| GET | `/schema/`, `/docs/` | ✅ Aşama 1 |
+| POST | `/sessions/` → `{session_id, session_token, category, total_questions, time_limit_ms}` | Aşama 2 |
+| GET | `/sessions/{id}/question/` (ilk istekte süre başlar; tekrarda kalan süre döner) | Aşama 2 |
+| POST | `/sessions/{id}/answer/` `{question_id, choice_id\|null}` | Aşama 2 |
+| GET | `/sessions/{id}/result/` | Aşama 2 |
+| POST | `/sessions/{id}/score/` `{player_name}` | Aşama 3 |
+| GET | `/leaderboard/?category={slug}` | Aşama 3 |
+
+### Hata kodları
+
+| code | HTTP | Ne zaman |
+| --- | --- | --- |
+| `validation_error` | 400 | Eksik/geçersiz alan (ör. isim 2–20 karakter değil) |
+| `invalid_token` | 401 | `X-Session-Token` eksik/yanlış |
+| `not_found` | 404 | Oturum veya kategori yok |
+| `question_mismatch` | 409 | Gönderilen `question_id` sıradaki soru değil |
+| `already_answered` | 409 | Soru zaten cevaplanmış |
+| `session_not_finished` | 409 | Bitmemiş oturum için skor kaydı |
+| `score_already_submitted` | 409 | İsim ikinci kez gönderildi |
+| `session_expired` | 410 | Oturum 10 dakikadan eski |
+| `rate_limited` | 429 | İstek sınırı aşıldı |
+
+Ek olarak genel durumlar için `method_not_allowed` (405), `forbidden` (403), `server_error` (500) kullanılır.
+
+Throttle: IP başına dakikada 10 oturum, 120 cevap; skor kaydı saatte 20. Skor yalnızca `finished` oturumdan, bir kez, sunucunun hesapladığı puanla yazılır. İsim: 2–20 karakter, harf/rakam/boşluk/`_`, küfür listesi.
+
+## Yapı
+
+```text
+config/settings/{base,dev,prod}.py   # dev: DEBUG, prod: güvenlik başlıkları + env'den okuma
+apps/core/        # hata biçimi (exceptions.py), health, JSON 404/500
+apps/catalog/     # Category, Question, Choice, admin, load_questions (loader.py)
+apps/quiz/        # (Aşama 2) QuizSession, SessionQuestion, services.py
+apps/leaderboard/ # (Aşama 3) ScoreEntry
+data/categories.json, data/questions/<kategori-slug>.json
+tests/
+```
+
+Tablo adları dokümandaki gibidir (`categories`, `questions`, `choices`, `quiz_sessions`, `session_questions`, `score_entries`). `Choice` için partial unique constraint soru başına en fazla bir doğru şıkkı garanti eder; "tam 4 şık, tam 1 doğru" kuralını admin formset'i ve `load_questions` doğrular.
+
+## Komutlar
+
+```bash
+docker compose up                                        # Django + PostgreSQL 16
+docker compose exec web python manage.py migrate
+docker compose exec web python manage.py load_questions  # kategoriler + sorular (tekrar çalıştırmak güvenli)
+pytest                                                   # testler (PostgreSQL gerekir)
+ruff check . && ruff format .
+```
+
+Docker olmadan hızlı deneme için `DATABASE_URL=sqlite:///db.sqlite3` verilebilir; ancak `quiz` uygulamasındaki `ArrayField` (`choice_order`) PostgreSQL gerektirir, o aşamadan sonra testler PostgreSQL'e karşı çalıştırılmalıdır.
+
+## Test kuralları
+
+- Zaman testlerinde gerçek bekleme yok: `time-machine` ile saat dondurulur.
+- Zorunlu testler: yanıtta doğru şık yok; 5000 ms içinde `100 + bonus`, 5700 ms sonrası 0 puan; aynı soruyu ikinci kez istemek süreyi sıfırlamaz; cevaplanmamış soru varken sıradaki verilmez; ikinci cevap `already_answered`; bitmemiş oturumdan skor kaydı yok, bitmişten bir kez; eşit puanda sıralama; yanlış token 401; throttle aşımı 429.
+- Her aşama sonunda `ruff` + `pytest` temiz olmalı; Aşama 2 ve 3 hile önleme açısından ayrıca incelenmeli.
+
+## Yol haritası
+
+1. ✅ **Aşama 1 — Backend temeli** (Django iskeleti, catalog, load_questions, categories/health/OpenAPI, Docker)
+2. **Aşama 2 — Oyun motoru** (QuizSession, SessionQuestion, services.py, sessions uç noktaları, throttling, zorunlu testler)
+3. **Aşama 3 — Skor tablosu** (ScoreEntry, isim doğrulama + küfür filtresi, `POST /score/`, `GET /leaderboard/`, `expire_sessions`)
+4. **Aşama 4 — Frontend** (ayrı repo)
+5. **Aşama 5 — İçerik ve yayın** (kategori başına 60+ soru, CI, DigitalOcean)
+
+## Deploy notları (DigitalOcean App Platform)
+
+- Gunicorn `0.0.0.0:${PORT}` (8080) dinler; migration'lar ayrı `PRE_DEPLOY` job ile çalışır, container açılışında değil.
+- `prod.py` `DATABASE_URL` olmadan import edilebilmeli (collectstatic build sırasında DB yok).
+- HTTPS yük dengeleyicide sonlanır: `SECURE_PROXY_SSL_HEADER` zorunlu; `/api/v1/health/` SSL yönlendirmesinden muaftır.
+- `main` dalı korunmalı: `deploy_on_push` testlerden bağımsız yayına alır.

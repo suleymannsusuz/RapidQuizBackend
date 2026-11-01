@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: rapidquiz
+      POSTGRES_USER: rapidquiz
+      POSTGRES_PASSWORD: rapidquiz
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rapidquiz"]
+      interval: 5s
+      retries: 10
+
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DATABASE_URL: postgres://rapidquiz:rapidquiz@db:5432/rapidquiz
+    ports: ["8000:8000"]
+    volumes: [".:/app"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
