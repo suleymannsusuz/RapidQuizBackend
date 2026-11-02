@@ -1,5 +1,5 @@
 Django>=5.2,<5.3
-djangorestframework>=3.16,<4
+djangorestframework>=3.18.3,<4
 drf-spectacular>=0.28,<1
 django-environ>=0.12,<1
 django-cors-headers>=4.7,<5
