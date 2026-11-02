@@ -22,3 +22,7 @@ class QuestionThrottle(IPRateThrottle):
 
 class ScoreThrottle(IPRateThrottle):
     scope = "score"
+
+
+class LeaderboardThrottle(IPRateThrottle):
+    scope = "leaderboard"

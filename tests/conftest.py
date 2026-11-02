@@ -44,6 +44,36 @@ def playable_category(db, make_question):
 
 
 @pytest.fixture
+def make_score(db):
+    """Doğrudan skor tablosuna kayıt ekler (oyun oynatmadan)."""
+    from django.utils import timezone
+
+    from apps.leaderboard.models import ScoreEntry
+    from apps.quiz.models import QuizSession
+
+    def _make(category, name="Oyuncu", score=1000, ms=10_000, correct=10, created_at=None):
+        session = QuizSession.objects.create(
+            token_hash="x",
+            category=category,
+            status=QuizSession.Status.SUBMITTED,
+            total_score=score,
+            correct_count=correct,
+            total_response_ms=ms,
+        )
+        return ScoreEntry.objects.create(
+            session=session,
+            category=category,
+            player_name=name,
+            score=score,
+            correct_count=correct,
+            total_response_ms=ms,
+            created_at=created_at or timezone.now(),
+        )
+
+    return _make
+
+
+@pytest.fixture
 def make_question(db):
     def _make(category, text="Soru?", correct=0, **kwargs):
         question = Question.objects.create(category=category, text=text, **kwargs)

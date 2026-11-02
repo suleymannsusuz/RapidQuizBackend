@@ -3,15 +3,14 @@
 SQLite satır kilidi vermez, bu yüzden testler yalnızca PostgreSQL'e karşı anlamlıdır.
 """
 
-import threading
-
 import pytest
-from django.db import connection, connections
+from django.core.cache import cache
+from django.db import connection
 from rest_framework.test import APIClient
 
 from apps.quiz.models import QuizSession, SessionQuestion
 
-from .quiz_helpers import Game
+from .quiz_helpers import Game, run_in_parallel
 
 pytestmark = [
     pytest.mark.django_db(transaction=True),
@@ -23,30 +22,6 @@ pytestmark = [
 
 THREADS = 8
 ROUNDS = 5
-
-
-def run_in_parallel(worker, count):
-    """`worker(index)` fonksiyonunu aynı anda başlayan iş parçacıklarında çalıştırır."""
-    barrier = threading.Barrier(count)
-    results = [None] * count
-    errors = []
-
-    def target(index):
-        try:
-            barrier.wait()
-            results[index] = worker(index)
-        except Exception as exc:  # noqa: BLE001 - test hatası olarak ana iş parçacığına taşınır
-            errors.append(exc)
-        finally:
-            connections.close_all()
-
-    threads = [threading.Thread(target=target, args=(index,)) for index in range(count)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    assert not errors, errors
-    return results
 
 
 def test_simultaneous_identical_answers_score_exactly_once(playable_category):
@@ -85,6 +60,24 @@ def test_simultaneous_answers_with_different_choices_close_the_question_once(pla
         row = SessionQuestion.objects.get(session_id=game.session_id, position=0)
         assert row.answered_at is not None
         assert QuizSession.objects.get(pk=game.session_id).current_index == 1
+
+
+def test_simultaneous_score_submissions_create_exactly_one_entry(playable_category):
+    from apps.leaderboard.models import ScoreEntry
+
+    for round_number in range(ROUNDS):
+        cache.clear()  # skor throttle'ı (saatte 20) bu testin konusu değil
+        game = Game(APIClient())
+        game.finish()
+
+        def submit(index, game=game):
+            return Game.submit_score(game, f"Oyuncu {index}").status_code
+
+        codes = run_in_parallel(submit, THREADS)
+
+        assert sorted(codes) == [201] + [409] * (THREADS - 1), codes
+        assert ScoreEntry.objects.filter(session_id=game.session_id).count() == 1
+        assert ScoreEntry.objects.count() == round_number + 1
 
 
 def test_simultaneous_question_requests_serve_the_same_question_once(playable_category):

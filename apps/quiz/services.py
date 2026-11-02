@@ -139,7 +139,7 @@ def start_session(*, category_slug, platform, ip_hash):
 # --- ortak yardımcılar ----------------------------------------------------------------------
 
 
-def _expire_if_stale(session_id):
+def expire_if_stale(session_id):
     """10 dakikayı geçen aktif oturumu 'expired' yapar (ayrı, kısa bir güncelleme)."""
     QuizSession.objects.filter(
         pk=session_id,
@@ -148,7 +148,7 @@ def _expire_if_stale(session_id):
     ).update(status=QuizSession.Status.EXPIRED)
 
 
-def _lock_session(session_id, token):
+def lock_session(session_id, token):
     """Oturumu kilitleyerek getirir, token'ı doğrular. atomic blok içinde çağrılmalı."""
     try:
         session = QuizSession.objects.select_for_update().get(pk=session_id)
@@ -208,7 +208,7 @@ def _close_as_timeout(session, row, now):
     )
 
 
-def _settle_stale_question(session, now):
+def settle_stale_question(session, now):
     """Sunulmuş ama süresi (5000 + 700 ms) geçmiş mevcut soruyu süre aşımı olarak kapatır."""
     if session.status != QuizSession.Status.ACTIVE:
         return
@@ -222,12 +222,12 @@ def _settle_stale_question(session, now):
 
 def serve_question(session_id, token):
     """Sıradaki soruyu verir. İlk istekte süre başlar; tekrarda kalan süre döner."""
-    _expire_if_stale(session_id)
+    expire_if_stale(session_id)
     payload = None
     with transaction.atomic():
-        session = _lock_session(session_id, token)
+        session = lock_session(session_id, token)
         now = timezone.now()
-        _settle_stale_question(session, now)
+        settle_stale_question(session, now)
 
         if session.status == QuizSession.Status.ACTIVE:
             row = _current_row(session)
@@ -262,9 +262,9 @@ def serve_question(session_id, token):
 
 def submit_answer(session_id, token, question_id, choice_id):
     """Cevabı sunucu saatine göre değerlendirir; `choice_id=None` süre aşımı demektir."""
-    _expire_if_stale(session_id)
+    expire_if_stale(session_id)
     with transaction.atomic():
-        session = _lock_session(session_id, token)
+        session = lock_session(session_id, token)
         now = timezone.now()
 
         try:
@@ -328,11 +328,11 @@ def submit_answer(session_id, token, question_id, choice_id):
 
 def get_result(session_id, token):
     """Biten oturumun puan özetini verir."""
-    _expire_if_stale(session_id)
+    expire_if_stale(session_id)
     payload = None
     with transaction.atomic():
-        session = _lock_session(session_id, token)
-        _settle_stale_question(session, timezone.now())
+        session = lock_session(session_id, token)
+        settle_stale_question(session, timezone.now())
         if session.status != QuizSession.Status.ACTIVE:
             category = session.category
             payload = {

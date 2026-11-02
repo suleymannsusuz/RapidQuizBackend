@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.catalog",
     "apps.quiz",
+    "apps.leaderboard",
 ]
 
 MIDDLEWARE = [
@@ -89,6 +90,7 @@ REST_FRAMEWORK = {
         "answer": "120/min",
         "question": "240/min",
         "score": "20/hour",
+        "leaderboard": "120/min",
     },
     # Önündeki güvenilir vekil sayısı; 0 ise yalnızca REMOTE_ADDR kullanılır. X-Forwarded-For
     # istemci tarafından sahtelenebilir, bu yüzden sayı gerçek altyapıya göre ayarlanmalı.

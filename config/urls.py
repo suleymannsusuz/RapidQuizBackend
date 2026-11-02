@@ -10,6 +10,7 @@ api_v1 = [
     path("", include("apps.core.urls")),
     path("", include("apps.catalog.urls")),
     path("", include("apps.quiz.urls")),
+    path("", include("apps.leaderboard.urls")),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
 ]

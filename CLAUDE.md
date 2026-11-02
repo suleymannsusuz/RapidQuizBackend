@@ -44,8 +44,8 @@
 | GET | `/sessions/{id}/question/` (ilk istekte süre başlar; tekrarda kalan süre döner) | ✅ Aşama 2 |
 | POST | `/sessions/{id}/answer/` `{question_id, choice_id\|null}` | ✅ Aşama 2 |
 | GET | `/sessions/{id}/result/` → `{status, category, total_questions, total_score, correct_count, total_response_ms}` | ✅ Aşama 2 |
-| POST | `/sessions/{id}/score/` `{player_name}` | Aşama 3 |
-| GET | `/leaderboard/?category={slug}` | Aşama 3 |
+| POST | `/sessions/{id}/score/` `{player_name}` → 201 `{rank, in_top_10, score, leaderboard}` | ✅ Aşama 3 |
+| GET | `/leaderboard/?category={slug}` → `{category, leaderboard}`; satır: `{rank, player_name, score, correct_count, created_at}` | ✅ Aşama 3 |
 
 ### Hata kodları
 
@@ -63,7 +63,11 @@
 
 Ek olarak genel durumlar için `method_not_allowed` (405), `forbidden` (403), `server_error` (500) ve oyun motoruna özgü `session_finished` (409, 20. sorudan sonra soru istendi), `category_unavailable` (409, kategoride 20'den az geçerli soru var) kullanılır.
 
-Throttle (`apps/quiz/throttles.py`, IP başına): dakikada 10 oturum, 120 cevap, 240 soru/sonuç; skor kaydı saatte 20. Sayaçlar yerel bellekte: her gunicorn işçisi ayrı sayar, gerçek sınır işçi sayısı kadar esner. IP, `NUM_PROXIES` ayarına göre okunur (dev: 0, prod: 1; **ilk deploy'da App Platform'un gerçek vekil sayısı doğrulanmalı**, yanlış değer ya herkesi tek kovaya ya da sahte `X-Forwarded-For`'u geçerli sayar). Skor yalnızca `finished` oturumdan, bir kez, sunucunun hesapladığı puanla yazılır. İsim: 2–20 karakter, harf/rakam/boşluk/`_`, küfür listesi.
+Throttle (`apps/quiz/throttles.py`, IP başına): dakikada 10 oturum, 120 cevap, 240 soru/sonuç, 120 skor tablosu; skor kaydı saatte 20. Sayaçlar yerel bellekte: her gunicorn işçisi ayrı sayar, gerçek sınır işçi sayısı kadar esner. IP, `NUM_PROXIES` ayarına göre okunur (dev: 0, prod: 1; **ilk deploy'da App Platform'un gerçek vekil sayısı doğrulanmalı**, yanlış değer ya herkesi tek kovaya ya da sahte `X-Forwarded-For`'u geçerli sayar). Skor yalnızca `finished` oturumdan, bir kez, sunucunun hesapladığı puanla yazılır (istemci yalnızca `player_name` gönderir; fazladan alanlar yok sayılır). Kayıttan sonra oturum `submitted` olur. Son soru terk edilmişse oturum skor kaydı sırasında süre aşımıyla bitmiş sayılır.
+
+İsim (`apps/leaderboard/validators.py`): NFKC normalleştirme, baştaki/sondaki boşluk atılır, art arda boşluklar teke iner; 2–20 karakter; yalnızca harf/rakam/boşluk/`_` (HTML ve görünmez karakterler girmez); en az bir harf/rakam; küfür filtresi (`profanity.py`). Filtre bilerek küçük tutulmuş basit bir listedir: Türkçe karakterleri ASCII'ye indirir, `s1ktir` gibi rakam ikamelerini ve `fuuuck`/`amk123` gibi uzatma/süslemeleri çözer, kısa kelimelerde ("amk", "dick") yalnızca tam sözcük eşleşmesi arar (Scunthorpe sorununu önlemek için). Hata mesajı eşleşen kelimeyi söylemez. Uygunsuz skorlar admin panelinden silinebilir.
+
+Sıralama: puan ↓, toplam süre ↑, `created_at` ↑ (skorda `created_at` oynanış **bitiş zamanıdır**, isim girme zamanı değil), son olarak `id`. Sıra (`rank`) aynı kategorideki daha iyi kayıt sayısı + 1'dir.
 
 ## Yapı
 
@@ -71,8 +75,8 @@ Throttle (`apps/quiz/throttles.py`, IP başına): dakikada 10 oturum, 120 cevap,
 config/settings/{base,dev,prod}.py   # dev: DEBUG, prod: güvenlik başlıkları + env'den okuma
 apps/core/        # hata biçimi (exceptions.py), health, JSON 404/500
 apps/catalog/     # Category, Question, Choice, admin, load_questions (loader.py)
-apps/quiz/        # QuizSession, SessionQuestion, services.py (oyun motoru), throttles.py
-apps/leaderboard/ # (Aşama 3) ScoreEntry
+apps/quiz/        # QuizSession, SessionQuestion, services.py (oyun motoru), throttles.py, expire_sessions
+apps/leaderboard/ # ScoreEntry, services.py (skor kaydı, sıra), validators.py + profanity.py (isim)
 data/categories.json, data/questions/<kategori-slug>.json
 tests/
 ```
@@ -85,6 +89,7 @@ Tablo adları dokümandaki gibidir (`categories`, `questions`, `choices`, `quiz_
 docker compose up                                        # Django + PostgreSQL 16
 docker compose exec web python manage.py migrate
 docker compose exec web python manage.py load_questions  # kategoriler + sorular (tekrar çalıştırmak güvenli)
+docker compose exec web python manage.py expire_sessions # eski skorsuz oturumları temizler (--days 7, --dry-run)
 pytest                                                   # testler (PostgreSQL gerekir)
 ruff check . && ruff format .
 ```
@@ -107,7 +112,7 @@ Docker Compose'un `db` servisi de 5432'yi kullanır; ikisini aynı anda çalış
 
 1. ✅ **Aşama 1 — Backend temeli** (Django iskeleti, catalog, load_questions, categories/health/OpenAPI, Docker)
 2. ✅ **Aşama 2 — Oyun motoru** (QuizSession, SessionQuestion, services.py, sessions uç noktaları, throttling, zorunlu testler)
-3. **Aşama 3 — Skor tablosu** (ScoreEntry, isim doğrulama + küfür filtresi, `POST /score/`, `GET /leaderboard/`, `expire_sessions`)
+3. ✅ **Aşama 3 — Skor tablosu** (ScoreEntry, isim doğrulama + küfür filtresi, `POST /score/`, `GET /leaderboard/`, `expire_sessions`)
 4. **Aşama 4 — Frontend** (ayrı repo)
 5. **Aşama 5 — İçerik ve yayın** (kategori başına 60+ soru, CI, DigitalOcean)
 
