@@ -116,6 +116,12 @@ Docker Compose'un `db` servisi de 5432'yi kullanır; ikisini aynı anda çalış
 4. **Aşama 4 — Frontend** (ayrı repo)
 5. **Aşama 5 — İçerik ve yayın** (kategori başına 60+ soru, CI, DigitalOcean)
 
+## CI (GitHub Actions)
+
+`.github/workflows/ci.yml` her pull request'te ve `main`'e push'ta çalışır, iki iş: **"Lint ve testler (PostgreSQL)"** (ruff, eksik migration kontrolü, OpenAPI doğrulaması, PostgreSQL 16 servis konteyneri ile tüm testler; eşzamanlılık testleri yalnızca burada anlamlıdır) ve **"Docker imajı derlenir"** (üretim imajı, `collectstatic` dahil). Güvenlik: iş akışı yalnızca `contents: read` izniyle çalışır, kimlik bilgisi saklamaz; üçüncü taraf Action'lar sürüm etiketi yerine **commit SHA'sıyla sabitlenmiştir** (yorumda sürüm yazar). `.github/dependabot.yml` Action, pip ve Docker güncellemeleri için haftalık PR açar; yeni Action eklerken SHA'yı `git ls-remote --tags <repo>` ile bul.
+
+**Dal koruması** (GitHub → Settings → Branches → `main` için kural; `deploy_on_push` testlerden bağımsız yayına aldığı için şart): "Require a pull request before merging", "Require status checks to pass" ve yukarıdaki iki işin adını seç, "Do not allow bypassing". Koruma açılınca `main`'e doğrudan push yapılamaz; değişiklikler dal + PR ile gelir.
+
 ## Deploy notları (DigitalOcean App Platform)
 
 - Gunicorn `0.0.0.0:${PORT}` (8080) dinler; migration'lar ayrı `PRE_DEPLOY` job ile çalışır, container açılışında değil.

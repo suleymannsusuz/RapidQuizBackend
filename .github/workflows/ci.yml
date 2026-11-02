@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Varsayılan olarak yalnızca okuma izni; iş akışı kimlik bilgisi saklamaz.
+permissions:
+  contents: read
+
+# Aynı dal için eski çalışmayı iptal et
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint ve testler (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: rapidquiz
+          POSTGRES_USER: rapidquiz
+          POSTGRES_PASSWORD: rapidquiz
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rapidquiz"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DATABASE_URL: postgres://rapidquiz:rapidquiz@localhost:5432/rapidquiz
+      SECRET_KEY: ci-only-not-a-secret
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12" # Dockerfile ile aynı
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Bağımlılıkları kur
+        run: pip install -r requirements-dev.txt
+
+      - name: Ruff (lint)
+        run: ruff check .
+
+      - name: Ruff (biçim)
+        run: ruff format --check .
+
+      - name: Eksik migration var mı?
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: OpenAPI şeması geçerli mi?
+        run: python manage.py spectacular --validate --fail-on-warn --file /dev/null
+
+      # PostgreSQL'e karşı: oturum kilidi (select_for_update) eşzamanlılık testleri
+      # yalnızca burada anlamlıdır, SQLite'ta atlanırlar.
+      - name: Testler
+        run: pytest
+
+  docker:
+    name: Docker imajı derlenir
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Üretimde çalışacak imajın aynısı; collectstatic de derleme sırasında çalışır.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
