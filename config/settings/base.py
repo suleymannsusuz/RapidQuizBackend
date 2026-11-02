@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import environ
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -20,6 +21,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "apps.core",
     "apps.catalog",
+    "apps.quiz",
 ]
 
 MIDDLEWARE = [
@@ -80,7 +82,21 @@ REST_FRAMEWORK = {
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "apps.core.exceptions.api_exception_handler",
+    # IP başına sınırlar (bkz. apps/quiz/throttles.py). Sayaçlar yerel bellekte tutulur:
+    # her gunicorn işçisi kendi sayacını sayar, yani gerçek sınır işçi sayısı kadar esner.
+    "DEFAULT_THROTTLE_RATES": {
+        "session_start": "10/min",
+        "answer": "120/min",
+        "question": "240/min",
+        "score": "20/hour",
+    },
+    # Önündeki güvenilir vekil sayısı; 0 ise yalnızca REMOTE_ADDR kullanılır. X-Forwarded-For
+    # istemci tarafından sahtelenebilir, bu yüzden sayı gerçek altyapıya göre ayarlanmalı.
+    "NUM_PROXIES": env.int("NUM_PROXIES", default=0),
 }
+
+# Web istemcisinin özel oturum başlığını gönderebilmesi için (CORS ön kontrolü).
+CORS_ALLOW_HEADERS = (*default_headers, "x-session-token")
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Rapid Quiz API",

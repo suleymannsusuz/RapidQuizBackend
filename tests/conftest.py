@@ -1,7 +1,19 @@
+import datetime
+
 import pytest
+import time_machine
+from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from apps.catalog.models import Category, Choice, Question
+
+
+@pytest.fixture(autouse=True)
+def clear_throttle_cache():
+    """Throttle sayaçları testler arasında sızmasın."""
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture
@@ -10,8 +22,25 @@ def api_client():
 
 
 @pytest.fixture
+def clock():
+    """Dondurulmuş saat; `clock.shift(milliseconds=...)` ile ilerletilir."""
+    start = datetime.datetime(2026, 1, 1, 12, 0, tzinfo=datetime.UTC)
+    with time_machine.travel(start, tick=False) as traveller:
+        yield traveller
+
+
+@pytest.fixture
 def category(db):
     return Category.objects.create(slug="yazilim", name="Yazılım", color="#3B82F6", sort_order=1)
+
+
+@pytest.fixture
+def playable_category(db, make_question):
+    """25 geçerli soruluk aktif kategori (bir oturum 20 soru çeker)."""
+    category = Category.objects.create(slug="yazilim", name="Yazılım", color="#3B82F6")
+    for index in range(25):
+        make_question(category, text=f"Soru {index}?", correct=index % 4)
+    return category
 
 
 @pytest.fixture

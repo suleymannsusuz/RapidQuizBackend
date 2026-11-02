@@ -22,7 +22,8 @@
 | Süre | 5000 ms, sunucu saatiyle (`served_at`) |
 | Ağ toleransı | +700 ms; bu sürede gelen cevap kabul edilir, bonus 0 |
 | 5700 ms sonrası | Süre aşımı, 0 puan |
-| Doğru cevap | `100 + round(50 × max(0, 5000 − t) / 5000)` |
+| Doğru cevap | `100 + round(50 × max(0, 5000 − t) / 5000)`; yarımlar yukarı yuvarlanır (`calculate_points`) |
+| Süre aşımının süresi | Toplam süreye her zaman 5000 ms eklenir (soru atlayarak eşitlik bozmada avantaj sağlanamaz) |
 | Yanlış / süre aşımı | 0 puan, eksi puan yok |
 | Geri dönme / atlama | Yok |
 | Zorluk çarpanı | Yok (`difficulty` yalnızca saklanır) |
@@ -39,10 +40,10 @@
 | GET | `/categories/` | ✅ Aşama 1 |
 | GET | `/health/` | ✅ Aşama 1 |
 | GET | `/schema/`, `/docs/` | ✅ Aşama 1 |
-| POST | `/sessions/` → `{session_id, session_token, category, total_questions, time_limit_ms}` | Aşama 2 |
-| GET | `/sessions/{id}/question/` (ilk istekte süre başlar; tekrarda kalan süre döner) | Aşama 2 |
-| POST | `/sessions/{id}/answer/` `{question_id, choice_id\|null}` | Aşama 2 |
-| GET | `/sessions/{id}/result/` | Aşama 2 |
+| POST | `/sessions/` `{category, platform}` → `{session_id, session_token, category, total_questions, time_limit_ms}` | ✅ Aşama 2 |
+| GET | `/sessions/{id}/question/` (ilk istekte süre başlar; tekrarda kalan süre döner) | ✅ Aşama 2 |
+| POST | `/sessions/{id}/answer/` `{question_id, choice_id\|null}` | ✅ Aşama 2 |
+| GET | `/sessions/{id}/result/` → `{status, category, total_questions, total_score, correct_count, total_response_ms}` | ✅ Aşama 2 |
 | POST | `/sessions/{id}/score/` `{player_name}` | Aşama 3 |
 | GET | `/leaderboard/?category={slug}` | Aşama 3 |
 
@@ -60,9 +61,9 @@
 | `session_expired` | 410 | Oturum 10 dakikadan eski |
 | `rate_limited` | 429 | İstek sınırı aşıldı |
 
-Ek olarak genel durumlar için `method_not_allowed` (405), `forbidden` (403), `server_error` (500) kullanılır.
+Ek olarak genel durumlar için `method_not_allowed` (405), `forbidden` (403), `server_error` (500) ve oyun motoruna özgü `session_finished` (409, 20. sorudan sonra soru istendi), `category_unavailable` (409, kategoride 20'den az geçerli soru var) kullanılır.
 
-Throttle: IP başına dakikada 10 oturum, 120 cevap; skor kaydı saatte 20. Skor yalnızca `finished` oturumdan, bir kez, sunucunun hesapladığı puanla yazılır. İsim: 2–20 karakter, harf/rakam/boşluk/`_`, küfür listesi.
+Throttle (`apps/quiz/throttles.py`, IP başına): dakikada 10 oturum, 120 cevap, 240 soru/sonuç; skor kaydı saatte 20. Sayaçlar yerel bellekte: her gunicorn işçisi ayrı sayar, gerçek sınır işçi sayısı kadar esner. IP, `NUM_PROXIES` ayarına göre okunur (dev: 0, prod: 1; **ilk deploy'da App Platform'un gerçek vekil sayısı doğrulanmalı**, yanlış değer ya herkesi tek kovaya ya da sahte `X-Forwarded-For`'u geçerli sayar). Skor yalnızca `finished` oturumdan, bir kez, sunucunun hesapladığı puanla yazılır. İsim: 2–20 karakter, harf/rakam/boşluk/`_`, küfür listesi.
 
 ## Yapı
 
@@ -70,7 +71,7 @@ Throttle: IP başına dakikada 10 oturum, 120 cevap; skor kaydı saatte 20. Skor
 config/settings/{base,dev,prod}.py   # dev: DEBUG, prod: güvenlik başlıkları + env'den okuma
 apps/core/        # hata biçimi (exceptions.py), health, JSON 404/500
 apps/catalog/     # Category, Question, Choice, admin, load_questions (loader.py)
-apps/quiz/        # (Aşama 2) QuizSession, SessionQuestion, services.py
+apps/quiz/        # QuizSession, SessionQuestion, services.py (oyun motoru), throttles.py
 apps/leaderboard/ # (Aşama 3) ScoreEntry
 data/categories.json, data/questions/<kategori-slug>.json
 tests/
@@ -88,7 +89,13 @@ pytest                                                   # testler (PostgreSQL g
 ruff check . && ruff format .
 ```
 
-Docker olmadan hızlı deneme için `DATABASE_URL=sqlite:///db.sqlite3` verilebilir; ancak `quiz` uygulamasındaki `ArrayField` (`choice_order`) PostgreSQL gerektirir, o aşamadan sonra testler PostgreSQL'e karşı çalıştırılmalıdır.
+Docker olmadan: PostgreSQL 16 taşınabilir sürüm olarak `C:\Users\Süleyman\RapidQuizTools\postgres` altında kuruludur (kullanıcı/şifre/veritabanı `rapidquiz`, `localhost:5432`; compose ile aynı bilgiler, yani `DATABASE_URL` vermeden çalışır). Sunucu bilgisayar yeniden başlayınca kapanır; yolda `ü` olduğu için `initdb`/`pg_ctl` ASCII kısa yolla (`SLEYMA~1`) çalıştırılmalıdır:
+
+```bash
+C:/Users/SLEYMA~1/RapidQuizTools/postgres/pgsql/bin/pg_ctl.exe -D C:/Users/SLEYMA~1/RapidQuizTools/postgres/data -l C:/Users/SLEYMA~1/RapidQuizTools/postgres/postgres.log start
+```
+
+Docker Compose'un `db` servisi de 5432'yi kullanır; ikisini aynı anda çalıştırma (biri kapalı olmalı). Hızlı deneme için `DATABASE_URL=sqlite:///db.sqlite3` de verilebilir. `SessionQuestion.choice_order` dokümandaki `smallint[]` yerine `JSONField`'dır (şık kimliklerinin listesi; PostgreSQL'de `jsonb`), böylece SQLite ile de çalışır. SQLite `select_for_update`'i yok sayar: oturum satırı kilidiyle sağlanan eşzamanlılık güvenliği (çift cevap, çift tıklama) yalnızca PostgreSQL'e karşı doğrulanabilir (`tests/test_quiz_concurrency.py`, SQLite'ta atlanır). Kilit kaldırıldığında bu testler başarısız olur: 8 eşzamanlı aynı cevabın hepsi 200 döner, puan 8 kez eklenir. CI testleri PostgreSQL ile koşmalıdır.
 
 ## Test kuralları
 
@@ -99,7 +106,7 @@ Docker olmadan hızlı deneme için `DATABASE_URL=sqlite:///db.sqlite3` verilebi
 ## Yol haritası
 
 1. ✅ **Aşama 1 — Backend temeli** (Django iskeleti, catalog, load_questions, categories/health/OpenAPI, Docker)
-2. **Aşama 2 — Oyun motoru** (QuizSession, SessionQuestion, services.py, sessions uç noktaları, throttling, zorunlu testler)
+2. ✅ **Aşama 2 — Oyun motoru** (QuizSession, SessionQuestion, services.py, sessions uç noktaları, throttling, zorunlu testler)
 3. **Aşama 3 — Skor tablosu** (ScoreEntry, isim doğrulama + küfür filtresi, `POST /score/`, `GET /leaderboard/`, `expire_sessions`)
 4. **Aşama 4 — Frontend** (ayrı repo)
 5. **Aşama 5 — İçerik ve yayın** (kategori başına 60+ soru, CI, DigitalOcean)
