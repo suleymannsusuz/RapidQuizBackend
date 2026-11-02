@@ -4,6 +4,9 @@ Skor yalnızca bitmiş (`finished`) bir oturumdan, bir kez ve sunucunun hesaplad
 yazılır; istemci yalnızca ismi gönderir.
 """
 
+import logging
+
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -15,6 +18,8 @@ from apps.quiz import services as quiz_services
 from apps.quiz.models import QuizSession
 
 from .models import ScoreEntry
+
+logger = logging.getLogger(__name__)
 
 LEADERBOARD_SIZE = 10
 
@@ -57,6 +62,18 @@ def rank_of(entry):
     return ahead.count() + 1
 
 
+def is_implausibly_fast(session):
+    """Soru başına ortalama cevap süresi, insanın okuyup şık seçebileceğinin altındaysa True.
+
+    Skor şişirme (soru bankasını toplayan bot) önlemidir. `total_response_ms` sunucu
+    saatiyle ölçülür (soru sunulduktan cevabın ulaşmasına kadar, ağ gecikmesi dahil) ve
+    süre aşımı sorular tam süre (5000 ms) sayılır. Eşik `SCORE_MIN_AVG_RESPONSE_MS`
+    ayarıyla değişir; 0 önlemi kapatır.
+    """
+    minimum = settings.SCORE_MIN_AVG_RESPONSE_MS
+    return session.total_response_ms < minimum * quiz_services.QUESTIONS_PER_SESSION
+
+
 def submit_score(session_id, token, player_name):
     """Biten oturumun puanını isimle kaydeder; sıralamayı ve ilk 10'u döner."""
     quiz_services.expire_if_stale(session_id)
@@ -75,6 +92,18 @@ def submit_score(session_id, token, player_name):
         elif session.status != QuizSession.Status.FINISHED:
             problem = APIError(
                 "session_not_finished", "Quiz henüz bitmedi.", status.HTTP_409_CONFLICT
+            )
+        elif is_implausibly_fast(session):
+            logger.warning(
+                "Şüpheli skor reddedildi: oturum=%s ortalama=%d ms/soru ip_hash=%s",
+                session.id,
+                session.total_response_ms // quiz_services.QUESTIONS_PER_SESSION,
+                session.ip_hash[:12],
+            )
+            problem = APIError(
+                "score_rejected",
+                "Cevapların insan için fazla hızlıydı, skor kaydedilemedi.",
+                422,
             )
         else:
             entry = ScoreEntry.objects.create(

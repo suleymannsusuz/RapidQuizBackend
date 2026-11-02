@@ -9,6 +9,13 @@ from apps.catalog.models import Category, Choice, Question
 
 
 @pytest.fixture(autouse=True)
+def speed_guard(settings):
+    """Skor şişirme önlemi (çok hızlı cevap) testlerde varsayılan olarak kapalıdır: çoğu test
+    saati dondurup anında cevap verir. Önleme özel test dosyası bu fixture'ı ezer."""
+    settings.SCORE_MIN_AVG_RESPONSE_MS = 0
+
+
+@pytest.fixture(autouse=True)
 def clear_throttle_cache():
     """Throttle sayaçları testler arasında sızmasın."""
     cache.clear()

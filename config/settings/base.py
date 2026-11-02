@@ -72,6 +72,11 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Skor şişirmeye karşı: soru başına ortalama cevap süresi bunun altındaysa skor kaydedilmez
+# (ms). Gerçek bir oyuncu soruyu okuyup şık seçerken ağ gecikmesi dahil bundan çok daha uzun
+# sürer. 0 önlemi kapatır. Bütün ortamlarda aynıdır (üretimde farklı davranış olmasın).
+SCORE_MIN_AVG_RESPONSE_MS = env.int("SCORE_MIN_AVG_RESPONSE_MS", default=500)
+
 # Admin varsayılan /admin/ dışında bir yola alınabilir (prodüksiyonda önerilir).
 ADMIN_URL = env("ADMIN_URL", default="admin/")
 
