@@ -2,6 +2,35 @@
 
 5 kategoride 20'şer soru soran, soru başına 5 saniye süre tanıyan, üyeliksiz bilgi yarışması. Ayrıntılı tasarım: `docs/rapid-quiz-proje-dokumani.md` (kaynak doküman; çelişki olursa o geçerlidir). Frontend ayrı repoda: `C:\Users\Süleyman\PycharmProjects\RapidQuizFrontend` (Vue 3).
 
+## ÖNCE BUNU OKU: oturum devir notu (2026-11-02)
+
+**Sonraki oturumun işi:** Kullanıcı Rapid Quiz'i **DigitalOcean App Platform'a kendisi, `doctl` olmadan, tarayıcıdaki panelden elle** deploy edecek. Büyük olasılıkla şunu isteyecek: *"Sıfırdan DigitalOcean'a bir app ve bir static site nasıl deploy ederim, anlat."* → **`docs/deploy-oturum-notlari.md` dosyasını oku** (değerler, ortam değişkenleri tablosu, sıra, doğrulama listesi, riskler, fiyat) ve oradan adım adım, Türkçe anlat. Proje dokümanındaki `doctl` bölümü kullanılmayacak. DigitalOcean hesabında sen hiçbir işlem yapma; kullanıcı tıklar, sen anlatırsın. Panel adlarını anlatmadan önce güncel belgeyle doğrulamak için **önce kullanıcıdan izin iste** (önceki oturumda belge okuyan alt ajan çağrısı reddedildi, sebebi söylenmedi). **Kullanıcının alan adını henüz bilmiyoruz: sor.**
+
+**Durum:** Aşama 1–4 tamam. Aşama 5'ten CI (iki repoda GitHub Actions, yeşil) ve bot önlemi tamam. Kalanlar, öncelik sırasıyla:
+1. **Deploy** (altyapı önce: bugünkü 25 soruyla yayına al, içerik sonra: kullanıcı kararı)
+2. **Soru havuzu 60/kategori** (şu an 25; 300 soru): ben yazarım, **doğruluğu kullanıcı kontrol eder** (kontrol tablosu hazırla: soru, 4 şık, doğru cevap). Değişebilecek bilgilerden (nüfus, başkent) kaçın
+3. **Güvenlik gözden geçirmesi** (iki repo, yayın öncesi; özellikle hile önleme ve token yönetimi)
+4. Süper kullanıcı oluşturma (yayında konsoldan), GitHub'da `main` dal koruması (kullanıcı yapar; adımlar CI bölümünde), `NUM_PROXIES` doğrulaması (yayından sonra), gerçek telefonda 5 sn / 700 ms tolerans testi (mobil veri), yönetilen PostgreSQL'e geçiş (gerçek oyuncudan önce; dev DB yedeksiz)
+
+**Depolar** (ikisi de `main`, push'lu, çalışma ağacı temiz olmalı):
+- Backend `C:\Users\Süleyman\PycharmProjects\RapidQuizBackend` → github.com/suleymannsusuz/RapidQuizBackend (265 test, ruff, CI yeşil)
+- Frontend `C:\Users\Süleyman\PycharmProjects\RapidQuizFrontend` → github.com/suleymannsusuz/RapidQuizFrontend (208 birim test + 12 Playwright E2E, CI yeşil). Kendi `CLAUDE.md`'si var.
+
+**Kullanıcı kararları** (tekrar sorma): skor tablosu kategori bazlı ve tüm zamanlar, zorluk çarpanı yok, yanlışta doğru şık gösterilir, bot önlemi var (soru başına ortalama < 500 ms ise skor reddedilir), kendi alan adını kullanacak, kategori başına 60 soru, yayın sırası "altyapı önce". Mobil teknoloji (Capacitor / React Native / Flutter) hâlâ seçilmedi, MVP için gerekmiyor.
+
+**Kullanıcıyla çalışma şekli:**
+- **Türkçe** yaz. Kararlar onundur: seçenek varsa **sor** (soru sormamı beğeniyor). Yaptığın şeyi **görebilmek istiyor**: Browser panelinde canlı göster (uygulama `http://127.0.0.1:5173`, API belgeleri `http://localhost:8000/api/v1/docs/`).
+- **Kalıcı izin:** iki repoda doğrulama (test, lint) sonrası `main`'e commit + push serbest. Dal koruması açılırsa dal + PR'a geç. Ücretli/yıkıcı işlem (DigitalOcean, canlı veri silme) yapma; adımları anlat.
+- Reddedilen çağrılar (sebep söylenmedi; tekrar önermeden önce sor): bir Python-heredoc ile dokümana ekleme yapan komut ve DigitalOcean belgesini okuyan alt ajan. Dosya düzenlemeyi görünür `Edit` ile yapmak sorun çıkarmadı.
+- Ortam test verisi: dev veritabanındaki skorlar ("Süleyman", "mehmet") kullanıcının kendi oynadıkları; silme. Testlerin bıraktığı `e2e_...` skorları silinebilir (komut frontend `README.md`'de).
+
+**Bu makineye dair bilgiler** (Windows 11, yolda `ü` var):
+- Node taşınabilir kurulu, `PATH`'te değil: `C:/Users/SLEYMA~1/RapidQuizTools/node/node-v26.13.0-win-x64` komutların başına eklenmeli (`export PATH="$(cygpath -u ...):$PATH"`). Docker Desktop `C:/Users/Süleyman/AppData/Local/Programs/DockerDesktop/resources/bin` altında, bash `PATH`'inde yok.
+- `docker compose up -d` çalışıyor olmalı (backend 8000, PostgreSQL 5432). **Taşınabilir PostgreSQL** (`C:\Users\Süleyman\RapidQuizTools\postgres`) 5432'yi Docker ile paylaşır; yalnızca biri açık olmalı (şu an kapalı, Docker açık). Ayrıntılar `memory/rapidquiz-local-postgres.md`.
+- Frontend: `npm run dev` (5173, sabit port), `npm test`, `npm run test:e2e` (backend gerekir; E2E testleri dev DB'ye `e2e_` skoru yazar). Playwright Chromium kurulu (`%LOCALAPPDATA%\ms-playwright`).
+- Browser panelinde: pencere gizliyken ekran görüntüsü alınamaz ve `requestAnimationFrame` yavaşlar (sayaç görseli donar, süre aşımı `setTimeout` yedeğiyle yine çalışır); `read_page` olmadan `ref` ile tıklanmaz; toplu işlemde `tabId` belirt. Gerçek zamanlı akışı ekran görüntüsüyle değil DOM örneklemesiyle doğrula.
+- GitHub Actions sonuçlarını `api.github.com/repos/suleymannsusuz/<repo>/actions/runs` (repolar herkese açık, kimlik bilgisi gerekmez) ile izleyebilirsin. Yeni Action eklerken commit SHA'sıyla sabitle.
+
 ## Değişmez kurallar
 
 - **Puan, süre ve doğru cevap kontrolü her zaman sunucuda yapılır.** İstemciden gelen hiçbir süre/puan bilgisine güvenilmez.

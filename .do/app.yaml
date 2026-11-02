@@ -13,7 +13,7 @@ envs:                  # app seviyesinde: service ve job ikisi de görür
 services:
   - name: api
     github:
-      repo: <github-kullanici>/rapid-quiz-backend
+      repo: suleymannsusuz/RapidQuizBackend
       branch: main
       deploy_on_push: true
     dockerfile_path: Dockerfile
@@ -35,7 +35,7 @@ jobs:
   - name: migrate
     kind: PRE_DEPLOY
     github:
-      repo: <github-kullanici>/rapid-quiz-backend
+      repo: suleymannsusuz/RapidQuizBackend
       branch: main
     dockerfile_path: Dockerfile
     run_command: python manage.py migrate --noinput
